@@ -60,7 +60,6 @@
 打开 `ESP8266_IR_Controller_v2.ino` 文件，找到以下行并修改：
 
 ```cpp
-// WiFi 配置 - 请修改为你的网络信息
 const char* ssid = "YOUR_WIFI_SSID";      // 改成你的WiFi名称
 const char* password = "YOUR_WIFI_PASSWORD";  // 改成你的WiFi密码
 ```
@@ -138,8 +137,9 @@ const int AUTO_OFF_HOUR = 19;   // 晚上7点
 | 文件 | 说明 |
 |------|------|
 | `ESP8266_IR_Controller.ino` | 基础版本，不含 NTP 时间同步（适合简单应用） |
-| `ESP8266_IR_Controller_v2.ino` | 完整版本，包含 NTP 时间同步和美观的 Web 界面 |
+| `ESP8266_IR_Controller_v2.ino` | 完整版本，包含 NTP 时间同步和美观的 Web 界面（推荐） |
 | `README.md` | 本说明文档 |
+| `web_interface.html` | 独立的 Web 界面文件（可选） |
 
 ## 故障排除
 

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP8266 红外遥控器</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    h1 {
+      color: white;
+      text-align: center;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      margin-bottom: 5px;
+    }
+    .subtitle {
+      color: rgba(255,255,255,0.8);
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 15px 0;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    h3 {
+      color: #333;
+      margin-top: 0;
+      border-bottom: 2px solid #667eea;
+      padding-bottom: 10px;
+      font-size: 16px;
+    }
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      margin: 5px;
+      background: #667eea;
+      color: white;
+      text-decoration: none;
+      border-radius: 25px;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s;
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+    }
+    .btn-green {
+      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    }
+    .btn-green:hover { box-shadow: 0 4px 12px rgba(17,153,142,0.4); }
+    .btn-orange {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+    .btn-orange:hover { box-shadow: 0 4px 12px rgba(240,147,251,0.4); }
+    .btn-small { padding: 8px 16px; font-size: 12px; }
+
+    .status {
+      padding: 15px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+      color: #333;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    input[type="text"] {
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 25px;
+      width: calc(100% - 140px);
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    input[type="text"]:focus { outline: none; border-color: #667eea; }
+
+    .schedule {
+      color: #666;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .clock-icon { font-size: 24px; }
+
+    .result {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      font-size: 14px;
+    }
+    .result.error {
+      background: #ffebee;
+      color: #c62828;
+    }
+
+    .quick-btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .quick-btn {
+      padding: 6px 12px;
+      background: #f0f0f0;
+      border: 1px solid #ddd;
+      border-radius: 15px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .quick-btn:hover {
+      background: #667eea;
+      color: white;
+      border-color: #667eea;
+    }
+
+    .config-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0;
+      flex-wrap: wrap;
+    }
+    .config-row label {
+      font-size: 14px;
+      color: #666;
+      min-width: 60px;
+    }
+    .config-row input {
+      width: 120px;
+    }
+  </style>
+</head>
+<body>
+  <h1>📺 ESP8266 红外遥控器</h1>
+  <p class="subtitle">智能遥控 · 定时任务 · WiFi 控制</p>
+
+  <!-- 系统状态 -->
+  <div class="card">
+    <h3>🖥️ 系统状态</h3>
+    <div class="status" id="status">
+      正在连接到 ESP8266...<br>
+      请确保设备已开启并连接到同一网络
+    </div>
+  </div>
+
+  <!-- 服务器配置 -->
+  <div class="card">
+    <h3>⚙️ 服务器设置</h3>
+    <div class="config-row">
+      <label>ESP IP:</label>
+      <input type="text" id="espIp" placeholder="192.168.1.100" value="">
+      <button class="btn btn-small" onclick="connectToESP()">连接</button>
+    </div>
+    <p style="color:#999;font-size:12px;">输入 ESP8266 的 IP 地址（在串口监视器中查看）</p>
+  </div>
+
+  <!-- 红外学习 -->
+  <div class="card">
+    <h3>🎓 红外学习</h3>
+    <p style="color:#666;font-size:14px;">输入命令名称，点击学习，然后在 30 秒内按遥控器按键</p>
+    <input type="text" id="cmdName" placeholder="如: power, vol+, source" maxlength="15">
+    <button class="btn btn-orange" onclick="learn()">🎓 开始学习</button>
+    <div id="learnResult"></div>
+    <p style="color:#999;font-size:12px;margin-top:10px;">建议学习的命令: power, vol+, vol-, source, up, down, left, right, ok, menu, back</p>
+  </div>
+
+  <!-- 手动控制 -->
+  <div class="card">
+    <h3>🎮 手动控制</h3>
+    <input type="text" id="sendCmd" placeholder="命令名称" maxlength="15">
+    <button class="btn" onclick="send()">📡 发送指令</button>
+    <div class="quick-btns">
+      <span class="quick-btn" onclick="quickSend('power')">电源</span>
+      <span class="quick-btn" onclick="quickSend('vol+')">音量+</span>
+      <span class="quick-btn" onclick="quickSend('vol-')">音量-</span>
+      <span class="quick-btn" onclick="quickSend('source')">信号源</span>
+      <span class="quick-btn" onclick="quickSend('up')">↑</span>
+      <span class="quick-btn" onclick="quickSend('down')">↓</span>
+      <span class="quick-btn" onclick="quickSend('ok')">OK</span>
+      <span class="quick-btn" onclick="quickSend('back')">返回</span>
+    </div>
+    <div id="sendResult"></div>
+  </div>
+
+  <!-- 自动播放 -->
+  <div class="card">
+    <h3>▶️ 自动播放</h3>
+    <p style="color:#666;font-size:14px;">立即执行自动播放序列（开机 → 选择信号源 → 播放）</p>
+    <button class="btn btn-green" onclick="autoPlay()">▶️ 立即执行</button>
+    <div id="autoResult"></div>
+    <p style="color:#999;font-size:12px;margin-top:10px;">执行序列: 电源 → 等待3秒 → 信号源 → OK → 下 → 下 → OK</p>
+  </div>
+
+  <!-- 定时任务 -->
+  <div class="card">
+    <h3>⏰ 定时任务</h3>
+    <div class="schedule">
+      <span class="clock-icon">🌅</span>
+      <span>每天早上 08:00 自动开机并播放视频</span>
+    </div>
+    <div class="schedule">
+      <span class="clock-icon">🌙</span>
+      <span>每天晚上 19:00 自动关机</span>
+    </div>
+    <p style="color:#999;font-size:12px;">定时任务依赖 NTP 网络时间，请确保设备能访问互联网</p>
+  </div>
+
+  <script>
+    let espBaseUrl = '';
+
+    function connectToESP() {
+      const ip = document.getElementById('espIp').value.trim();
+      if (!ip) {
+        alert('请输入 ESP8266 的 IP 地址');
+        return;
+      }
+      espBaseUrl = `http://${ip}`;
+      updateStatus();
+      alert('已设置服务器地址: ' + espBaseUrl);
+    }
+
+    function updateStatus() {
+      if (!espBaseUrl) {
+        document.getElementById('status').innerHTML =
+          '⚠️ 请先设置 ESP8266 的 IP 地址（在串口监视器中查看）';
+        return;
+      }
+
+      fetch(espBaseUrl + '/status')
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById('status').innerHTML =
+            '📶 WiFi: ' + data.wifi + '<br>' +
+            '🌐 IP: ' + data.ip + '<br>' +
+            '💾 存储命令: ' + data.codes + ' 个<br>' +
+            '🕐 当前时间: ' + (data.time || '--') + '<br>' +
+            '🔔 下次开机: ' + (data.nextOn || '--') + ' | 下次关机: ' + (data.nextOff || '--') + '<br>' +
+            '🎓 学习模式: ' + (data.learning ? '<span style="color:orange">进行中⏳</span>' : '<span style="color:green">空闲✓</span>');
+        })
+        .catch(e => {
+          document.getElementById('status').innerHTML =
+            '❌ 连接失败: ' + e.message + '<br>请检查 IP 地址是否正确，以及设备是否在线';
+        });
+    }
+
+    function learn() {
+      if (!espBaseUrl) { alert('请先设置 ESP IP 地址'); return; }
+      const name = document.getElementById('cmdName').value.trim();
+      if (!name) { alert('请输入命令名称'); return; }
+
+      document.getElementById('learnResult').innerHTML =
+        '<div class="result">🎓 学习模式已启动...请在30秒内按遥控器按键</div>';
+
+      fetch(espBaseUrl + '/learn?slot=' + encodeURIComponent(name))
+        .then(r => r.text())
+        .then(t => {
+          document.getElementById('learnResult').innerHTML =
+            '<div class="result">✅ ' + t + '</div>';
+          updateStatus();
+        })
+        .catch(e => {
+          document.getElementById('learnResult').innerHTML =
+            '<div class="result error">❌ 学习失败: ' + e.message + '</div>';
+        });
+    }
+
+    function send() {
+      if (!espBaseUrl) { alert('请先设置 ESP IP 地址'); return; }
+      const cmd = document.getElementById('sendCmd').value.trim();
+      if (!cmd) { alert('请输入命令名称'); return; }
+
+      doSend(cmd);
+    }
+
+    function quickSend(cmd) {
+      if (!espBaseUrl) { alert('请先设置 ESP IP 地址'); return; }
+      document.getElementById('sendCmd').value = cmd;
+      doSend(cmd);
+    }
+
+    function doSend(cmd) {
+      fetch(espBaseUrl + '/send?cmd=' + encodeURIComponent(cmd))
+        .then(r => r.text())
+        .then(t => {
+          document.getElementById('sendResult').innerHTML =
+            '<div class="result">✅ ' + t + '</div>';
+        })
+        .catch(e => {
+          document.getElementById('sendResult').innerHTML =
+            '<div class="result error">❌ 发送失败: ' + e.message + '</div>';
+        });
+    }
+
+    function autoPlay() {
+      if (!espBaseUrl) { alert('请先设置 ESP IP 地址'); return; }
+
+      document.getElementById('autoResult').innerHTML =
+        '<div class="result">▶️ 正在执行自动播放序列，请稍候...</div>';
+
+      fetch(espBaseUrl + '/auto')
+        .then(r => r.text())
+        .then(t => {
+          document.getElementById('autoResult').innerHTML =
+            '<div class="result">✅ ' + t + '</div>';
+        })
+        .catch(e => {
+          document.getElementById('autoResult').innerHTML =
+            '<div class="result error">❌ 执行失败: ' + e.message + '</div>';
+        });
+    }
+
+    // 自动刷新状态
+    setInterval(updateStatus, 3000);
+    updateStatus();
+  </script>
+</body>
+</html>

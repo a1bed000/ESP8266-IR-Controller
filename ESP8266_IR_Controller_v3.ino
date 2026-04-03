@@ -48,7 +48,7 @@ struct Schedule {
   bool triggered;
 };
 
-IRRecv irrecv(IR_RECEIVE_PIN);
+IRrecv irrecv(IR_RECEIVE_PIN);
 IRsend irsend(IR_SEND_PIN);
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;

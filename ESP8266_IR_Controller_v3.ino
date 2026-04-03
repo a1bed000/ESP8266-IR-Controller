@@ -5,6 +5,7 @@
  * 2. 操作链管理 - 创建自定义操作序列（发送命令 + 等待）
  * 3. 定时任务 - 每天定时触发不同的操作链
  * 4. Web 配置界面 - 全功能图形化配置
+ * 5. OTA 在线更新 - 支持无线固件升级
  */
 
 #include <ESP8266WiFi.h>
@@ -147,7 +148,7 @@ void handleNotFound();
 // ============== 设置函数 ==============
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n\n=== ESP8266 红外智能控制器 v3 ===");
+  Serial.println("\n\n=== ESP8266 IR Controller v3 ===");
 
   // 初始化 EEPROM
   EEPROM.begin(EEPROM_SIZE);
@@ -165,7 +166,7 @@ void setup() {
   irsend.begin();
 
   // 连接 WiFi
-  Serial.print("正在连接 WiFi: ");
+  Serial.print("Connecting to WiFi: ");
   Serial.println(ssid);
 
   WiFi.mode(WIFI_STA);
@@ -179,18 +180,18 @@ void setup() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi 已连接!");
-    Serial.print("IP 地址: ");
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
 
     // 启动 NTP 客户端
     timeClient.begin();
     syncNTPTime();
   } else {
-    Serial.println("\nWiFi 连接失败，启动 AP 模式");
+    Serial.println("\nWiFi connection failed, starting AP mode");
     WiFi.mode(WIFI_AP);
     WiFi.softAP("ESP8266_IR_Controller");
-    Serial.print("AP IP 地址: ");
+    Serial.print("AP IP address: ");
     Serial.println(WiFi.softAPIP());
   }
 
@@ -214,20 +215,20 @@ void setup() {
 
   // 设置 OTA 更新
   httpUpdater.setup(&server);
-  Serial.println("OTA 更新服务已启动 (访问 /update)");
+  Serial.println("OTA update service started (access /update)");
 
   // 设置 mDNS
   if (MDNS.begin("esp8266-ir")) {
-    Serial.println("mDNS 已启动: esp8266-ir.local");
+    Serial.println("mDNS started: esp8266-ir.local");
   }
 
   server.begin();
-  Serial.println("HTTP 服务器已启动");
+  Serial.println("HTTP server started");
 
   // 启动定时任务检查（每分钟检查一次）
   timeTicker.attach(60.0, checkScheduledTasks);
 
-  Serial.println("系统初始化完成!");
+  Serial.println("System initialization complete!");
   Serial.println("===========================================\n");
 }
 
@@ -245,16 +246,16 @@ void loop() {
   // 处理红外学习模式
   if (learningMode) {
     if (millis() - learningStartTime > LEARNING_TIMEOUT) {
-      Serial.println("学习模式超时!");
+      Serial.println("Learning mode timeout!");
       learningMode = false;
       learningSlot = -1;
     } else {
       decode_results results;
       if (irrecv.decode(&results)) {
-        Serial.print("接收到红外信号: ");
-        Serial.print("协议: ");
+        Serial.print("Received IR signal: ");
+        Serial.print("Protocol: ");
         Serial.print(typeToString(results.decode_type));
-        Serial.print("  编码: 0x");
+        Serial.print("  Code: 0x");
         Serial.println(results.value, HEX);
 
         if (learningSlot >= 0) {
@@ -266,9 +267,9 @@ void loop() {
           irCodes[learningSlot].name[31] = '\0';
           saveIRCodes();
 
-          Serial.print("编码已保存到槽位 ");
+          Serial.print("Code saved to slot ");
           Serial.print(learningSlot);
-          Serial.print(" 名称: ");
+          Serial.print(" Name: ");
           Serial.println(irCodes[learningSlot].name);
 
           learningMode = false;
@@ -286,15 +287,15 @@ void loop() {
 // ============== 文件系统操作 ==============
 void initFilesystem() {
   if (!LittleFS.begin()) {
-    Serial.println("LittleFS 挂载失败，尝试格式化...");
+    Serial.println("LittleFS mount failed, trying to format...");
     LittleFS.format();
     if (LittleFS.begin()) {
-      Serial.println("LittleFS 格式化并挂载成功");
+      Serial.println("LittleFS formatted and mounted successfully");
     } else {
-      Serial.println("LittleFS 挂载失败!");
+      Serial.println("LittleFS mount failed!");
     }
   } else {
-    Serial.println("LittleFS 挂载成功");
+    Serial.println("LittleFS mounted successfully");
   }
 }
 
@@ -306,7 +307,7 @@ void loadIRCodes() {
 
   File file = LittleFS.open(CODES_FILE, "r");
   if (!file) {
-    Serial.println("红外编码文件不存在，使用 EEPROM 加载");
+    Serial.println("IR codes file not found, loading from EEPROM");
     int addr = 0;
     for (int i = 0; i < MAX_IR_CODES; i++) {
       EEPROM.get(addr, irCodes[i]);
@@ -321,7 +322,7 @@ void loadIRCodes() {
   file.close();
 
   if (error) {
-    Serial.println("解析红外编码文件失败");
+    Serial.println("Failed to parse IR codes file");
     return;
   }
 
@@ -337,9 +338,9 @@ void loadIRCodes() {
     idx++;
   }
 
-  Serial.print("加载了 ");
+  Serial.print("Loaded ");
   Serial.print(idx);
-  Serial.println(" 个红外编码");
+  Serial.println(" IR codes");
 }
 
 void saveIRCodes() {
@@ -361,13 +362,13 @@ void saveIRCodes() {
 
   File file = LittleFS.open(CODES_FILE, "w");
   if (!file) {
-    Serial.println("无法写入红外编码文件");
+    Serial.println("Failed to write IR codes file");
     return;
   }
 
   serializeJson(doc, file);
   file.close();
-  Serial.println("红外编码已保存");
+  Serial.println("IR codes saved");
 }
 
 // ============== 操作链存储操作 ==============
@@ -378,7 +379,7 @@ void loadChains() {
 
   File file = LittleFS.open(CHAINS_FILE, "r");
   if (!file) {
-    Serial.println("操作链文件不存在");
+    Serial.println("Chains file not found");
     return;
   }
 
@@ -387,7 +388,7 @@ void loadChains() {
   file.close();
 
   if (error) {
-    Serial.println("解析操作链文件失败");
+    Serial.println("Failed to parse chains file");
     return;
   }
 
@@ -421,9 +422,9 @@ void loadChains() {
     idx++;
   }
 
-  Serial.print("加载了 ");
+  Serial.print("Loaded ");
   Serial.print(idx);
-  Serial.println(" 个操作链");
+  Serial.println(" chains");
 }
 
 void saveChains() {
@@ -446,13 +447,13 @@ void saveChains() {
 
   File file = LittleFS.open(CHAINS_FILE, "w");
   if (!file) {
-    Serial.println("无法写入操作链文件");
+    Serial.println("Failed to write chains file");
     return;
   }
 
   serializeJson(doc, file);
   file.close();
-  Serial.println("操作链已保存");
+  Serial.println("Chains saved");
 }
 
 // ============== 定时任务存储操作 ==============
@@ -464,7 +465,7 @@ void loadSchedules() {
 
   File file = LittleFS.open(SCHEDULES_FILE, "r");
   if (!file) {
-    Serial.println("定时任务文件不存在");
+    Serial.println("Schedules file not found");
     return;
   }
 
@@ -473,7 +474,7 @@ void loadSchedules() {
   file.close();
 
   if (error) {
-    Serial.println("解析定时任务文件失败");
+    Serial.println("Failed to parse schedules file");
     return;
   }
 
@@ -494,9 +495,9 @@ void loadSchedules() {
     idx++;
   }
 
-  Serial.print("加载了 ");
+  Serial.print("Loaded ");
   Serial.print(idx);
-  Serial.println(" 个定时任务");
+  Serial.println(" schedules");
 }
 
 void saveSchedules() {
@@ -516,13 +517,13 @@ void saveSchedules() {
 
   File file = LittleFS.open(SCHEDULES_FILE, "w");
   if (!file) {
-    Serial.println("无法写入定时任务文件");
+    Serial.println("Failed to write schedules file");
     return;
   }
 
   serializeJson(doc, file);
   file.close();
-  Serial.println("定时任务已保存");
+  Serial.println("Schedules saved");
 }
 
 // ============== 红外操作函数 ==============
@@ -530,14 +531,14 @@ void sendIRCodeByName(const char* name) {
   for (int i = 0; i < MAX_IR_CODES; i++) {
     if (irCodes[i].valid && strcmp(irCodes[i].name, name) == 0) {
       sendIRCode(irCodes[i].code, irCodes[i].bits, irCodes[i].protocol);
-      Serial.print("发送红外命令: ");
+      Serial.print("Send IR command: ");
       Serial.print(name);
-      Serial.print(" 编码: 0x");
+      Serial.print(" Code: 0x");
       Serial.println(irCodes[i].code, HEX);
       return;
     }
   }
-  Serial.print("未找到命令: ");
+  Serial.print("Command not found: ");
   Serial.println(name);
 }
 
@@ -567,7 +568,7 @@ void enterLearningMode(const char* name) {
     }
   }
   if (slot == -1) {
-    Serial.println("存储空间已满");
+    Serial.println("Storage full");
     return;
   }
 
@@ -576,14 +577,14 @@ void enterLearningMode(const char* name) {
   learningMode = true;
   learningSlot = slot;
   learningStartTime = millis();
-  Serial.print("进入学习模式，槽位: ");
+  Serial.print("Enter learning mode, slot: ");
   Serial.println(slot);
 }
 
 // ============== 操作链执行 ==============
 void runChain(int chainId) {
   if (isRunningChain) {
-    Serial.println("已有操作链在运行中");
+    Serial.println("Another chain is already running");
     return;
   }
 
@@ -596,14 +597,14 @@ void runChain(int chainId) {
   }
 
   if (chainIdx == -1) {
-    Serial.print("未找到操作链 ID: ");
+    Serial.print("Chain not found, ID: ");
     Serial.println(chainId);
     return;
   }
 
   isRunningChain = true;
   Serial.println("========================================");
-  Serial.print("开始执行操作链: ");
+  Serial.print("Start executing chain: ");
   Serial.println(chains[chainIdx].name);
   Serial.println("========================================");
 
@@ -611,12 +612,12 @@ void runChain(int chainId) {
     Step* step = &chains[chainIdx].steps[i];
     if (step->type == Step::WAIT) {
       int waitMs = atoi(step->data);
-      Serial.print("[等待] ");
+      Serial.print("[Wait] ");
       Serial.print(waitMs);
-      Serial.println(" 毫秒");
+      Serial.println(" ms");
       delay(waitMs);
     } else {
-      Serial.print("[发送] ");
+      Serial.print("[Send] ");
       Serial.println(step->data);
       sendIRCodeByName(step->data);
       delay(500);
@@ -624,16 +625,16 @@ void runChain(int chainId) {
   }
 
   Serial.println("========================================");
-  Serial.println("操作链执行完成!");
+  Serial.println("Chain execution complete!");
   Serial.println("========================================");
   isRunningChain = false;
 }
 
 // ============== 定时任务 ==============
 void syncNTPTime() {
-  Serial.println("正在同步 NTP 时间...");
+  Serial.println("Syncing NTP time...");
   timeClient.update();
-  Serial.print("当前时间: ");
+  Serial.print("Current time: ");
   Serial.println(timeClient.getFormattedTime());
   lastNtpSync = millis();
 }
@@ -644,7 +645,7 @@ String getCurrentTimeString() {
 
 void checkScheduledTasks() {
   if (!timeClient.isTimeSet()) {
-    Serial.println("等待时间同步...");
+    Serial.println("Waiting for time sync...");
     return;
   }
 
@@ -660,10 +661,10 @@ void checkScheduledTasks() {
     for (int i = 0; i < 20; i++) {
       schedules[i].triggeredToday = false;
     }
-    Serial.println("新的一天，重置触发状态");
+    Serial.println("New day, reset trigger status");
   }
 
-  Serial.print("当前时间: ");
+  Serial.print("Current time: ");
   Serial.print(currentHour);
   Serial.print(":");
   Serial.println(currentMinute);
@@ -671,7 +672,7 @@ void checkScheduledTasks() {
   for (int i = 0; i < 20; i++) {
     if (schedules[i].valid && schedules[i].enabled && !schedules[i].triggeredToday) {
       if (schedules[i].hour == currentHour && schedules[i].minute == currentMinute) {
-        Serial.print("触发定时任务 ID: ");
+        Serial.print("Trigger schedule ID: ");
         Serial.println(schedules[i].id);
         schedules[i].triggeredToday = true;
         runChain(schedules[i].chainId);
@@ -693,7 +694,7 @@ void handleRoot() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESP8266 红外控制器 v3</title>
+  <title>ESP8266 IR Controller v3</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; color: #eee; }
@@ -754,77 +755,77 @@ void handleRoot() {
 </head>
 <body>
   <div class="container">
-    <h1>📺 ESP8266 红外控制器 v3</h1>
-    <p class="subtitle">智能红外 · 操作链 · 定时任务</p>
+    <h1>ESP8266 IR Controller v3</h1>
+    <p class="subtitle">Smart IR Control | Chains | Schedules</p>
 
     <div class="status-bar" id="statusBar">
-      <div class="status-item"><span>📶 WiFi</span><span id="wifiStatus">连接中...</span></div>
-      <div class="status-item"><span>🌐 IP</span><span id="ipStatus">--</span></div>
-      <div class="status-item"><span>🕐 时间</span><span id="timeStatus">--</span></div>
-      <div class="status-item"><span>💾 编码</span><span id="codesCount">0</span></div>
+      <div class="status-item"><span>WiFi</span><span id="wifiStatus">Connecting...</span></div>
+      <div class="status-item"><span>IP</span><span id="ipStatus">--</span></div>
+      <div class="status-item"><span>Time</span><span id="timeStatus">--</span></div>
+      <div class="status-item"><span>Codes</span><span id="codesCount">0</span></div>
       <div class="status-item" style="margin-top:10px;padding-top:10px;border-top:1px solid #444;">
-        <span style="color:#888;">📥 固件升级:</span>
-        <a href="/update" style="color:#667eea;text-decoration:none;" target="_blank">点击进入 OTA 更新页面</a>
+        <span style="color:#888;">Firmware Update:</span>
+        <a href="/update" style="color:#667eea;text-decoration:none;" target="_blank">Go to OTA update page</a>
       </div>
     </div>
 
     <div class="tabs">
-      <button class="tab active" data-tab="learn">🎓 红外学习</button>
-      <button class="tab" data-tab="codes">📋 编码管理</button>
-      <button class="tab" data-tab="chains">🔗 操作链</button>
-      <button class="tab" data-tab="schedules">⏰ 定时任务</button>
+      <button class="tab active" data-tab="learn">Learn IR</button>
+      <button class="tab" data-tab="codes">Codes</button>
+      <button class="tab" data-tab="chains">Chains</button>
+      <button class="tab" data-tab="schedules">Schedules</button>
     </div>
 
     <div class="card active" id="tab-learn">
-      <h3>🎓 学习新按键</h3>
+      <h3>Learn New Button</h3>
       <div class="form-group">
-        <label>按键名称（如: power, vol+, channel_up）</label>
+        <label>Button name (e.g. power, vol+, channel_up)</label>
         <div class="row">
           <div class="col" style="flex: 3;">
-            <input type="text" id="learnName" placeholder="输入按键名称" maxlength="30">
+            <input type="text" id="learnName" placeholder="Enter button name" maxlength="30">
           </div>
           <div class="col">
-            <button class="btn" id="learnBtn" onclick="startLearning()">开始学习</button>
+            <button class="btn" id="learnBtn" onclick="startLearning()">Start Learning</button>
           </div>
         </div>
       </div>
 
       <div class="learning-indicator waiting" id="learningWaiting">
-        <div class="pulse"><strong>🎯 等待红外信号...</strong></div>
-        <p style="margin-top:10px;color:#888;">请在30秒内按下遥控器按键</p>
+        <div class="pulse"><strong>Waiting for IR signal...</strong></div>
+        <p style="margin-top:10px;color:#888;">Press remote button within 30 seconds</p>
       </div>
 
       <div class="learning-indicator success" id="learningSuccess">
-        <strong>✅ 学习成功！</strong>
+        <strong>Learning successful!</strong>
       </div>
 
       <div style="margin-top:20px;">
-        <h4>💡 提示</h4>
+        <h4>Tips</h4>
         <ul style="color:#888;font-size:14px;line-height:1.8;">
-          <li>将遥控器对准 ESP8266 的红外接收头</li>
-          <li>距离建议在 5-30 厘米之间</li>
-          <li>相同名称的按键会覆盖旧编码</li>
+          <li>Point remote at ESP8266 IR receiver</li>
+          <li>Recommended distance: 5-30 cm</li>
+          <li>Same name will overwrite existing code</li>
         </ul>
       </div>
     </div>
 
     <div class="card" id="tab-codes">
-      <h3>📋 已学习的编码</h3>
+      <h3>Learned Codes</h3>
       <div id="codesList"></div>
     </div>
 
     <div class="card" id="tab-chains">
-      <h3>🔗 操作链管理</h3>
+      <h3>Operation Chains</h3>
       <div style="margin-bottom:15px;">
-        <button class="btn btn-success" onclick="openChainModal()">+ 新建操作链</button>
+        <button class="btn btn-success" onclick="openChainModal()">+ New Chain</button>
       </div>
       <div id="chainsList"></div>
     </div>
 
     <div class="card" id="tab-schedules">
-      <h3>⏰ 定时任务</h3>
+      <h3>Scheduled Tasks</h3>
       <div style="margin-bottom:15px;">
-        <button class="btn btn-success" onclick="openScheduleModal()">+ 新建定时任务</button>
+        <button class="btn btn-success" onclick="openScheduleModal()">+ New Schedule</button>
       </div>
       <div id="schedulesList"></div>
     </div>
@@ -833,25 +834,25 @@ void handleRoot() {
   <div class="modal" id="chainModal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 id="chainModalTitle">新建操作链</h3>
+        <h3 id="chainModalTitle">New Chain</h3>
         <button class="close-btn" onclick="closeChainModal()">&times;</button>
       </div>
       <div class="form-group">
-        <label>操作链名称</label>
-        <input type="text" id="chainName" placeholder="如: 早上开机播放">
+        <label>Chain Name</label>
+        <input type="text" id="chainName" placeholder="e.g. Morning Power On">
       </div>
       <div style="margin-bottom:15px;">
-        <label>操作步骤</label>
+        <label>Steps</label>
         <div id="stepsList"></div>
         <div class="row" style="margin-top:10px;">
-          <div class="col"><select id="stepType"><option value="send">发送命令</option><option value="wait">等待</option></select></div>
+          <div class="col"><select id="stepType"><option value="send">Send Command</option><option value="wait">Wait</option></select></div>
           <div class="col" id="stepSendCol"><select id="stepSendCode"></select></div>
-          <div class="col" id="stepWaitCol" style="display:none;"><input type="number" id="stepWaitMs" placeholder="毫秒" value="1000"></div>
-          <div class="col" style="flex:none;"><button class="btn btn-sm" onclick="addStep()">+ 添加</button></div>
+          <div class="col" id="stepWaitCol" style="display:none;"><input type="number" id="stepWaitMs" placeholder="milliseconds" value="1000"></div>
+          <div class="col" style="flex:none;"><button class="btn btn-sm" onclick="addStep()">+ Add</button></div>
         </div>
       </div>
       <div style="text-align:right;">
-        <button class="btn" onclick="saveChain()">保存</button>
+        <button class="btn" onclick="saveChain()">Save</button>
       </div>
     </div>
   </div>
@@ -859,22 +860,22 @@ void handleRoot() {
   <div class="modal" id="scheduleModal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 id="scheduleModalTitle">新建定时任务</h3>
+        <h3 id="scheduleModalTitle">New Schedule</h3>
         <button class="close-btn" onclick="closeScheduleModal()">&times;</button>
       </div>
       <div class="form-group">
-        <label>触发时间</label>
+        <label>Trigger Time</label>
         <div class="row">
-          <div class="col"><input type="number" id="scheduleHour" placeholder="时" min="0" max="23"></div>
-          <div class="col"><input type="number" id="scheduleMinute" placeholder="分" min="0" max="59"></div>
+          <div class="col"><input type="number" id="scheduleHour" placeholder="hour" min="0" max="23"></div>
+          <div class="col"><input type="number" id="scheduleMinute" placeholder="minute" min="0" max="59"></div>
         </div>
       </div>
       <div class="form-group">
-        <label>执行操作链</label>
+        <label>Execute Chain</label>
         <select id="scheduleChain"></select>
       </div>
       <div style="text-align:right;">
-        <button class="btn" onclick="saveSchedule()">保存</button>
+        <button class="btn" onclick="saveSchedule()">Save</button>
       </div>
     </div>
   </div>
@@ -891,7 +892,7 @@ void handleRoot() {
           document.getElementById('wifiStatus').textContent = data.wifi;
           document.getElementById('ipStatus').textContent = data.ip;
           document.getElementById('timeStatus').textContent = data.time;
-          document.getElementById('codesCount').textContent = data.codes + ' 个';
+          document.getElementById('codesCount').textContent = data.codes;
         });
     }
 
@@ -909,7 +910,7 @@ void handleRoot() {
 
     function startLearning() {
       const name = document.getElementById('learnName').value.trim();
-      if (!name) { alert('请输入按键名称'); return; }
+      if (!name) { alert('Please enter button name'); return; }
       document.getElementById('learningWaiting').classList.add('active');
       document.getElementById('learningSuccess').classList.remove('active');
       fetch('/learn/start?name=' + encodeURIComponent(name))
@@ -946,14 +947,14 @@ void handleRoot() {
             <div class="list-item">
               <div>
                 <div class="name">${c.name}</div>
-                <div class="meta">${c.code} · ${c.bits} bits</div>
+                <div class="meta">${c.code} . ${c.bits} bits</div>
               </div>
               <div class="actions">
-                <button class="btn btn-sm" onclick="testCode('${c.name}')">测试</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteCode('${c.name}')">删除</button>
+                <button class="btn btn-sm" onclick="testCode('${c.name}')">Test</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteCode('${c.name}')">Delete</button>
               </div>
             </div>
-          `).join('') : '<div class="empty-state">还没有学习任何编码，去「红外学习」页面添加吧！</div>';
+          `).join('') : '<div class="empty-state">No codes learned yet. Go to "Learn IR" page to add some!</div>';
           document.getElementById('codesList').innerHTML = html;
         });
     }
@@ -963,7 +964,7 @@ void handleRoot() {
     }
 
     function deleteCode(name) {
-      if (!confirm('确定要删除 "' + name + '" 吗？')) return;
+      if (!confirm('Delete "' + name + '"?')) return;
       fetch('/codes/delete?name=' + encodeURIComponent(name))
         .then(() => loadCodes());
     }
@@ -976,15 +977,15 @@ void handleRoot() {
             <div class="list-item">
               <div>
                 <div class="name">${c.name}</div>
-                <div class="meta">${c.stepCount} 个步骤</div>
+                <div class="meta">${c.stepCount} steps</div>
               </div>
               <div class="actions">
-                <button class="btn btn-sm btn-success" onclick="runChain(${c.id})">运行</button>
-                <button class="btn btn-sm" onclick="editChain(${c.id})">编辑</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteChain(${c.id})">删除</button>
+                <button class="btn btn-sm btn-success" onclick="runChain(${c.id})">Run</button>
+                <button class="btn btn-sm" onclick="editChain(${c.id})">Edit</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteChain(${c.id})">Delete</button>
               </div>
             </div>
-          `).join('') : '<div class="empty-state">还没有操作链，点击上方按钮创建一个！</div>';
+          `).join('') : '<div class="empty-state">No chains yet. Click button above to create one!</div>';
           document.getElementById('chainsList').innerHTML = html;
         });
     }
@@ -992,7 +993,7 @@ void handleRoot() {
     function openChainModal(id = null) {
       currentEditChainId = id;
       tempSteps = [];
-      document.getElementById('chainModalTitle').textContent = id ? '编辑操作链' : '新建操作链';
+      document.getElementById('chainModalTitle').textContent = id ? 'Edit Chain' : 'New Chain';
       document.getElementById('chainName').value = '';
       document.getElementById('stepsList').innerHTML = '';
 
@@ -1026,7 +1027,7 @@ void handleRoot() {
     }
 
     function deleteChain(id) {
-      if (!confirm('确定要删除这个操作链吗？')) return;
+      if (!confirm('Delete this chain?')) return;
       fetch('/chains/delete?id=' + id)
         .then(() => loadChains());
     }
@@ -1050,14 +1051,14 @@ void handleRoot() {
     function renderSteps() {
       document.getElementById('stepsList').innerHTML = tempSteps.length ? tempSteps.map((s, i) => `
         <div class="step-item">
-          <span class="handle">⋮⋮</span>
+          <span class="handle">::</span>
           <span class="content">
-            <span class="step-badge ${s.type === 'send' ? 'badge-send' : 'badge-wait'}">${s.type === 'send' ? '发送' : '等待'}</span>
+            <span class="step-badge ${s.type === 'send' ? 'badge-send' : 'badge-wait'}">${s.type === 'send' ? 'Send' : 'Wait'}</span>
             ${s.type === 'send' ? s.data : s.data + 'ms'}
           </span>
-          <button class="btn btn-sm btn-danger" onclick="removeStep(${i})">×</button>
+          <button class="btn btn-sm btn-danger" onclick="removeStep(${i})">X</button>
         </div>
-      `).join('') : '<div style="color:#666;text-align:center;padding:20px;">还没有步骤，在下方添加</div>';
+      `).join('') : '<div style="color:#666;text-align:center;padding:20px;">No steps yet. Add some below</div>';
     }
 
     function removeStep(i) {
@@ -1067,8 +1068,8 @@ void handleRoot() {
 
     function saveChain() {
       const name = document.getElementById('chainName').value.trim();
-      if (!name) { alert('请输入操作链名称'); return; }
-      if (!tempSteps.length) { alert('请至少添加一个步骤'); return; }
+      if (!name) { alert('Please enter chain name'); return; }
+      if (!tempSteps.length) { alert('Please add at least one step'); return; }
 
       const payload = { name, steps: tempSteps };
       if (currentEditChainId) payload.id = currentEditChainId;
@@ -1089,32 +1090,32 @@ void handleRoot() {
         .then(([data, chainsData]) => {
           const html = data.schedules.length ? data.schedules.map(s => {
             const chain = chainsData.chains.find(c => c.id === s.chainId);
-            const chainName = chain ? chain.name : '未知';
+            const chainName = chain ? chain.name : 'Unknown';
             const time = String(s.hour).padStart(2, '0') + ':' + String(s.minute).padStart(2, '0');
             return `
               <div class="list-item">
                 <div>
-                  <div class="name">${time} · ${chainName}</div>
-                  <div class="meta">${s.enabled ? '已启用' : '已禁用'}</div>
+                  <div class="name">${time} . ${chainName}</div>
+                  <div class="meta">${s.enabled ? 'Enabled' : 'Disabled'}</div>
                 </div>
                 <div class="actions">
                   <label class="toggle">
                     <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSchedule(${s.id}, this.checked)">
                     <span class="toggle-slider"></span>
                   </label>
-                  <button class="btn btn-sm" onclick="editSchedule(${s.id})">编辑</button>
-                  <button class="btn btn-sm btn-danger" onclick="deleteSchedule(${s.id})">删除</button>
+                  <button class="btn btn-sm" onclick="editSchedule(${s.id})">Edit</button>
+                  <button class="btn btn-sm btn-danger" onclick="deleteSchedule(${s.id})">Delete</button>
                 </div>
               </div>
             `;
-          }).join('') : '<div class="empty-state">还没有定时任务，点击上方按钮创建一个！</div>';
+          }).join('') : '<div class="empty-state">No schedules yet. Click button above to create one!</div>';
           document.getElementById('schedulesList').innerHTML = html;
         });
     }
 
     function openScheduleModal(id = null) {
       currentEditScheduleId = id;
-      document.getElementById('scheduleModalTitle').textContent = id ? '编辑定时任务' : '新建定时任务';
+      document.getElementById('scheduleModalTitle').textContent = id ? 'Edit Schedule' : 'New Schedule';
       document.getElementById('scheduleHour').value = '';
       document.getElementById('scheduleMinute').value = '';
 
@@ -1148,7 +1149,7 @@ void handleRoot() {
     }
 
     function deleteSchedule(id) {
-      if (!confirm('确定要删除这个定时任务吗？')) return;
+      if (!confirm('Delete this schedule?')) return;
       fetch('/schedules/delete?id=' + id)
         .then(() => loadSchedules());
     }
@@ -1174,7 +1175,7 @@ void handleRoot() {
       const minute = parseInt(document.getElementById('scheduleMinute').value);
       const chainId = parseInt(document.getElementById('scheduleChain').value);
 
-      if (isNaN(hour) || isNaN(minute)) { alert('请输入有效的时间'); return; }
+      if (isNaN(hour) || isNaN(minute)) { alert('Please enter valid time'); return; }
 
       const payload = { hour, minute, chainId, enabled: true };
       if (currentEditScheduleId) payload.id = currentEditScheduleId;
@@ -1200,7 +1201,7 @@ void handleRoot() {
 
 void handleStatus() {
   String json = "{";
-  json += "\"wifi\":\"" + String(WiFi.status() == WL_CONNECTED ? "已连接" : "未连接") + "\",";
+  json += "\"wifi\":\"" + String(WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected") + "\",";
   json += "\"ip\":\"" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "--") + "\",";
   int validCodes = 0;
   for (int i = 0; i < MAX_IR_CODES; i++) {
@@ -1215,7 +1216,7 @@ void handleStatus() {
 
 void handleLearnStart() {
   if (!server.hasArg("name")) {
-    server.send(400, "text/plain", "缺少 name 参数");
+    server.send(400, "text/plain", "Missing name parameter");
     return;
   }
   String name = server.arg("name");
@@ -1226,7 +1227,7 @@ void handleLearnStart() {
 void handleLearnStatus() {
   String json = "{";
   json += "\"learning\":" + String(learningMode ? "true" : "false") + ",";
-  json += "\"success\":" + String(!learningMode && learningSlot == -1 && server.args() > 0 ? "true" : "false");
+  json += "\"success\":" + String(!learningMode && learningSlot == -1 ? "true" : "false");
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -1252,7 +1253,7 @@ void handleCodesList() {
 
 void handleCodesDelete() {
   if (!server.hasArg("name")) {
-    server.send(400, "text/plain", "缺少 name 参数");
+    server.send(400, "text/plain", "Missing name parameter");
     return;
   }
   String name = server.arg("name");
@@ -1300,7 +1301,7 @@ void handleChainsCreate() {
     }
   }
   if (idx == -1) {
-    server.send(500, "text/plain", "操作链数量已达上限");
+    server.send(500, "text/plain", "Too many chains");
     return;
   }
 
@@ -1337,7 +1338,7 @@ void handleChainsUpdate() {
     }
   }
   if (idx == -1) {
-    server.send(404, "text/plain", "操作链不存在");
+    server.send(404, "text/plain", "Chain not found");
     return;
   }
 
@@ -1361,7 +1362,7 @@ void handleChainsUpdate() {
 
 void handleChainsDelete() {
   if (!server.hasArg("id")) {
-    server.send(400, "text/plain", "缺少 id 参数");
+    server.send(400, "text/plain", "Missing id parameter");
     return;
   }
   int id = server.arg("id").toInt();
@@ -1377,7 +1378,7 @@ void handleChainsDelete() {
 
 void handleChainsRun() {
   if (!server.hasArg("id")) {
-    server.send(400, "text/plain", "缺少 id 参数");
+    server.send(400, "text/plain", "Missing id parameter");
     return;
   }
   int id = server.arg("id").toInt();
@@ -1416,7 +1417,7 @@ void handleSchedulesCreate() {
     }
   }
   if (idx == -1) {
-    server.send(500, "text/plain", "定时任务数量已达上限");
+    server.send(500, "text/plain", "Too many schedules");
     return;
   }
 
@@ -1445,7 +1446,7 @@ void handleSchedulesUpdate() {
     }
   }
   if (idx == -1) {
-    server.send(404, "text/plain", "定时任务不存在");
+    server.send(404, "text/plain", "Schedule not found");
     return;
   }
 
@@ -1460,7 +1461,7 @@ void handleSchedulesUpdate() {
 
 void handleSchedulesDelete() {
   if (!server.hasArg("id")) {
-    server.send(400, "text/plain", "缺少 id 参数");
+    server.send(400, "text/plain", "Missing id parameter");
     return;
   }
   int id = server.arg("id").toInt();

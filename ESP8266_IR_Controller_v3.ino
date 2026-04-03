@@ -144,6 +144,7 @@ void handleSchedulesUpdate();
 void handleSchedulesDelete();
 void handleStatus();
 void handleNotFound();
+void handleSend();
 
 // ============== 设置函数 ==============
 void setup() {
@@ -211,6 +212,7 @@ void setup() {
   server.on("/schedules/create", HTTP_POST, handleSchedulesCreate);
   server.on("/schedules/update", HTTP_POST, handleSchedulesUpdate);
   server.on("/schedules/delete", HTTP_GET, handleSchedulesDelete);
+  server.on("/send", HTTP_GET, handleSend);
   server.onNotFound(handleNotFound);
 
   // 设置 OTA 更新
@@ -289,6 +291,7 @@ void initFilesystem() {
   if (!LittleFS.begin()) {
     Serial.println("LittleFS mount failed, trying to format...");
     LittleFS.format();
+    if (LittleFS.begin());
     if (LittleFS.begin()) {
       Serial.println("LittleFS formatted and mounted successfully");
     } else {
@@ -688,514 +691,142 @@ String protocolToString(uint16_t protocol) {
 // ============== Web 处理函数 ==============
 
 void handleRoot() {
-  String html = R"(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESP8266 IR Controller v3</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; color: #eee; }
-    .container { max-width: 900px; margin: 0 auto; padding: 20px; }
-    h1 { text-align: center; margin-bottom: 10px; font-size: 28px; }
-    .subtitle { text-align: center; color: #888; margin-bottom: 30px; }
-    .tabs { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; }
-    .tab { flex: 1; min-width: 100px; padding: 12px 16px; background: #2a2a4a; border: none; color: #aaa; cursor: pointer; border-radius: 8px; font-size: 14px; transition: all 0.3s; }
-    .tab:hover { background: #3a3a5a; }
-    .tab.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: bold; }
-    .card { background: #2a2a4a; border-radius: 12px; padding: 20px; margin-bottom: 20px; display: none; }
-    .card.active { display: block; }
-    h3 { margin-top: 0; color: #667eea; border-bottom: 1px solid #444; padding-bottom: 10px; }
-    .btn { padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; transition: transform 0.2s; }
-    .btn:hover { transform: translateY(-2px); }
-    .btn-danger { background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%); }
-    .btn-success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
-    .btn-warning { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
-    input, select { padding: 10px; border: 2px solid #444; border-radius: 8px; background: #1a1a2e; color: white; font-size: 14px; width: 100%; }
-    input:focus, select:focus { outline: none; border-color: #667eea; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; color: #aaa; font-size: 14px; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .col { flex: 1; min-width: 150px; }
-    .status-bar { background: #1a1a2e; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-family: monospace; font-size: 13px; }
-    .status-item { display: flex; justify-content: space-between; padding: 5px 0; }
-    .list-item { background: #1a1a2e; padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-    .list-item .name { font-weight: bold; }
-    .list-item .meta { color: #888; font-size: 12px; margin-top: 4px; }
-    .list-item .actions { display: flex; gap: 5px; }
-    .btn-sm { padding: 6px 12px; font-size: 12px; }
-    .step-item { background: #1a1a2e; padding: 10px; border-radius: 6px; margin-bottom: 8px; display: flex; gap: 10px; align-items: center; }
-    .step-item .handle { cursor: grab; color: #666; }
-    .step-item .content { flex: 1; }
-    .step-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-right: 8px; }
-    .badge-send { background: #667eea; }
-    .badge-wait { background: #f5576c; }
-    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
-    .modal.active { display: flex; }
-    .modal-content { background: #2a2a4a; padding: 25px; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-    .modal-header h3 { border: none; padding: 0; margin: 0; }
-    .close-btn { background: none; border: none; color: #888; font-size: 24px; cursor: pointer; }
-    .learning-indicator { padding: 15px; border-radius: 8px; text-align: center; display: none; }
-    .learning-indicator.active { display: block; }
-    .learning-indicator.waiting { background: #2a1a1a; border: 2px dashed #f5576c; }
-    .learning-indicator.success { background: #1a2a1a; border: 2px solid #38ef7d; }
-    .pulse { animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    .empty-state { text-align: center; padding: 40px; color: #666; }
-    .toggle { display: inline-flex; align-items: center; cursor: pointer; }
-    .toggle input { display: none; }
-    .toggle-slider { width: 44px; height: 24px; background: #444; border-radius: 12px; position: relative; transition: background 0.3s; margin-right: 10px; }
-    .toggle-slider::after { content: ''; position: absolute; width: 20px; height: 20px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.3s; }
-    .toggle input:checked + .toggle-slider { background: #38ef7d; }
-    .toggle input:checked + .toggle-slider::after { transform: translateX(20px); }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>ESP8266 IR Controller v3</h1>
-    <p class="subtitle">Smart IR Control | Chains | Schedules</p>
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<title>ESP8266 IR Controller v3</title>";
+  html += "<style>";
+  html += "*{box-sizing:border-box;}";
+  html += "body{font-family:Arial,sans-serif;margin:0;padding:20px;background:#1a1a2e;color:#eee;}";
+  html += ".container{max-width:800px;margin:0 auto;}";
+  html += "h1{text-align:center;margin-bottom:30px;}";
+  html += ".nav{display:flex;gap:5px;margin-bottom:20px;flex-wrap:wrap;}";
+  html += ".nav button{flex:1;min-width:120px;padding:12px;background:#2a2a4a;border:none;color:#aaa;cursor:pointer;border-radius:8px;}";
+  html += ".nav button.active{background:#667eea;color:white;font-weight:bold;}";
+  html += ".page{display:none;background:#2a2a4a;padding:20px;border-radius:12px;}";
+  html += ".page.active{display:block;}";
+  html += "h3{margin-top:0;color:#667eea;border-bottom:1px solid #444;padding-bottom:10px;}";
+  html += ".btn{padding:10px 20px;background:#667eea;color:white;border:none;border-radius:8px;cursor:pointer;}";
+  html += ".btn-danger{background:#f5576c;}";
+  html += ".btn-success{background:#38ef7d;color:#1a1a2e;}";
+  html += "input,select{padding:10px;border:2px solid #444;border-radius:8px;background:#1a1a2e;color:white;width:100%;margin:5px 0;}";
+  html += ".item{background:#1a1a2e;padding:12px;border-radius:8px;margin:10px 0;display:flex;justify-content:space-between;align-items:center;}";
+  html += ".status{background:#1a1a2e;padding:15px;border-radius:8px;margin-bottom:20px;font-family:monospace;}";
+  html += "</style></head><body>";
+  html += "<div class='container'>";
+  html += "<h1>ESP8266 IR Controller v3</h1>";
 
-    <div class="status-bar" id="statusBar">
-      <div class="status-item"><span>WiFi</span><span id="wifiStatus">Connecting...</span></div>
-      <div class="status-item"><span>IP</span><span id="ipStatus">--</span></div>
-      <div class="status-item"><span>Time</span><span id="timeStatus">--</span></div>
-      <div class="status-item"><span>Codes</span><span id="codesCount">0</span></div>
-      <div class="status-item" style="margin-top:10px;padding-top:10px;border-top:1px solid #444;">
-        <span style="color:#888;">Firmware Update:</span>
-        <a href="/update" style="color:#667eea;text-decoration:none;" target="_blank">Go to OTA update page</a>
-      </div>
-    </div>
+  html += "<div class='status' id='status'>Loading...</div>";
 
-    <div class="tabs">
-      <button class="tab active" data-tab="learn">Learn IR</button>
-      <button class="tab" data-tab="codes">Codes</button>
-      <button class="tab" data-tab="chains">Chains</button>
-      <button class="tab" data-tab="schedules">Schedules</button>
-    </div>
+  html += "<div class='nav'>";
+  html += "<button class='active' onclick='showPage(\"learn\")'>Learn IR</button>";
+  html += "<button onclick='showPage(\"codes\")'>Codes</button>";
+  html += "<button onclick='showPage(\"chains\")'>Chains</button>";
+  html += "<button onclick='showPage(\"schedules\")'>Schedules</button>";
+  html += "<button onclick='location.href=\"/update\"'>OTA Update</button>";
+  html += "</div>";
 
-    <div class="card active" id="tab-learn">
-      <h3>Learn New Button</h3>
-      <div class="form-group">
-        <label>Button name (e.g. power, vol+, channel_up)</label>
-        <div class="row">
-          <div class="col" style="flex: 3;">
-            <input type="text" id="learnName" placeholder="Enter button name" maxlength="30">
-          </div>
-          <div class="col">
-            <button class="btn" id="learnBtn" onclick="startLearning()">Start Learning</button>
-          </div>
-        </div>
-      </div>
+  // Learn Page
+  html += "<div class='page active' id='page-learn'>";
+  html += "<h3>Learn New Button</h3>";
+  html += "<input type='text' id='learnName' placeholder='Button name (e.g. power)'>";
+  html += "<button class='btn' onclick='startLearn()'>Start Learning</button>";
+  html += "<div id='learnStatus' style='margin-top:10px;'></div>";
+  html += "</div>";
 
-      <div class="learning-indicator waiting" id="learningWaiting">
-        <div class="pulse"><strong>Waiting for IR signal...</strong></div>
-        <p style="margin-top:10px;color:#888;">Press remote button within 30 seconds</p>
-      </div>
+  // Codes Page
+  html += "<div class='page' id='page-codes'>";
+  html += "<h3>Learned Codes</h3>";
+  html += "<div id='codesList'></div>";
+  html += "</div>";
 
-      <div class="learning-indicator success" id="learningSuccess">
-        <strong>Learning successful!</strong>
-      </div>
+  // Chains Page
+  html += "<div class='page' id='page-chains'>";
+  html += "<h3>Operation Chains</h3>";
+  html += "<button class='btn btn-success' onclick='showNewChain()'>+ New Chain</button>";
+  html += "<div id='chainsList' style='margin-top:15px;'></div>";
+  html += "</div>";
 
-      <div style="margin-top:20px;">
-        <h4>Tips</h4>
-        <ul style="color:#888;font-size:14px;line-height:1.8;">
-          <li>Point remote at ESP8266 IR receiver</li>
-          <li>Recommended distance: 5-30 cm</li>
-          <li>Same name will overwrite existing code</li>
-        </ul>
-      </div>
-    </div>
+  // Schedules Page
+  html += "<div class='page' id='page-schedules'>";
+  html += "<h3>Scheduled Tasks</h3>";
+  html += "<button class='btn btn-success' onclick='showNewSchedule()'>+ New Schedule</button>";
+  html += "<div id='schedulesList' style='margin-top:15px;'></div>";
+  html += "</div>";
 
-    <div class="card" id="tab-codes">
-      <h3>Learned Codes</h3>
-      <div id="codesList"></div>
-    </div>
+  html += "</div>";
 
-    <div class="card" id="tab-chains">
-      <h3>Operation Chains</h3>
-      <div style="margin-bottom:15px;">
-        <button class="btn btn-success" onclick="openChainModal()">+ New Chain</button>
-      </div>
-      <div id="chainsList"></div>
-    </div>
+  html += "<script>";
+  html += "function showPage(p){";
+  html += "document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));";
+  html += "document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));";
+  html += "event.target.classList.add('active');";
+  html += "document.getElementById('page-'+p).classList.add('active');";
+  html += "if(p==='codes')loadCodes();";
+  html += "if(p==='chains')loadChains();";
+  html += "if(p==='schedules')loadSchedules();";
+  html += "}";
 
-    <div class="card" id="tab-schedules">
-      <h3>Scheduled Tasks</h3>
-      <div style="margin-bottom:15px;">
-        <button class="btn btn-success" onclick="openScheduleModal()">+ New Schedule</button>
-      </div>
-      <div id="schedulesList"></div>
-    </div>
-  </div>
+  html += "function updateStatus(){";
+  html += "fetch('/status').then(r=>r.json()).then(d=>{";
+  html += "document.getElementById('status').innerHTML='WiFi: '+d.wifi+'<br>IP: '+d.ip+'<br>Time: '+d.time+'<br>Codes: '+d.codes;";
+  html += "});}";
 
-  <div class="modal" id="chainModal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="chainModalTitle">New Chain</h3>
-        <button class="close-btn" onclick="closeChainModal()">&times;</button>
-      </div>
-      <div class="form-group">
-        <label>Chain Name</label>
-        <input type="text" id="chainName" placeholder="e.g. Morning Power On">
-      </div>
-      <div style="margin-bottom:15px;">
-        <label>Steps</label>
-        <div id="stepsList"></div>
-        <div class="row" style="margin-top:10px;">
-          <div class="col"><select id="stepType"><option value="send">Send Command</option><option value="wait">Wait</option></select></div>
-          <div class="col" id="stepSendCol"><select id="stepSendCode"></select></div>
-          <div class="col" id="stepWaitCol" style="display:none;"><input type="number" id="stepWaitMs" placeholder="milliseconds" value="1000"></div>
-          <div class="col" style="flex:none;"><button class="btn btn-sm" onclick="addStep()">+ Add</button></div>
-        </div>
-      </div>
-      <div style="text-align:right;">
-        <button class="btn" onclick="saveChain()">Save</button>
-      </div>
-    </div>
-  </div>
+  html += "function startLearn(){";
+  html += "var n=document.getElementById('learnName').value;";
+  html += "if(!n){alert('Enter name');return;}";
+  html += "document.getElementById('learnStatus').innerHTML='Learning... Press button within 30s';";
+  html += "fetch('/learn/start?name='+encodeURIComponent(n));";
+  html += "var i=setInterval(function(){";
+  html += "fetch('/learn/status').then(r=>r.json()).then(d=>{";
+  html += "if(!d.learning){clearInterval(i);document.getElementById('learnStatus').innerHTML='Done!';updateStatus();}";
+  html += "});},500);}";
 
-  <div class="modal" id="scheduleModal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="scheduleModalTitle">New Schedule</h3>
-        <button class="close-btn" onclick="closeScheduleModal()">&times;</button>
-      </div>
-      <div class="form-group">
-        <label>Trigger Time</label>
-        <div class="row">
-          <div class="col"><input type="number" id="scheduleHour" placeholder="hour" min="0" max="23"></div>
-          <div class="col"><input type="number" id="scheduleMinute" placeholder="minute" min="0" max="59"></div>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Execute Chain</label>
-        <select id="scheduleChain"></select>
-      </div>
-      <div style="text-align:right;">
-        <button class="btn" onclick="saveSchedule()">Save</button>
-      </div>
-    </div>
-  </div>
+  html += "function loadCodes(){";
+  html += "fetch('/codes').then(r=>r.json()).then(d=>{";
+  html += "var h='';";
+  html += "for(var i=0;i<d.codes.length;i++){";
+  html += "var c=d.codes[i];";
+  html += "h+=\"<div class='item'><div><b>\"+c.name+\"</b><br><small>\"+c.code+\"</small></div><div>";
+  html += "<button class='btn' onclick=\\\"testCode(\\'\"+c.name+\"\\')\\\">Test</button> ";
+  html += "<button class='btn btn-danger' onclick=\\\"deleteCode(\\'\"+c.name+\"\\')\\\">Delete</button>";
+  html += "</div></div>\";}";
+  html += "document.getElementById('codesList').innerHTML=h||'<p>No codes yet</p>';});}";
 
-  <script>
-    let currentEditChainId = null;
-    let currentEditScheduleId = null;
-    let tempSteps = [];
+  html += "function testCode(n){fetch('/send?name='+encodeURIComponent(n));}";
+  html += "function deleteCode(n){if(confirm('Delete?')){fetch('/codes/delete?name='+encodeURIComponent(n)).then(loadCodes);}}";
 
-    function updateStatus() {
-      fetch('/status')
-        .then(r => r.json())
-        .then(data => {
-          document.getElementById('wifiStatus').textContent = data.wifi;
-          document.getElementById('ipStatus').textContent = data.ip;
-          document.getElementById('timeStatus').textContent = data.time;
-          document.getElementById('codesCount').textContent = data.codes;
-        });
-    }
+  html += "function loadChains(){";
+  html += "fetch('/chains').then(r=>r.json()).then(d=>{";
+  html += "var h='';";
+  html += "for(var i=0;i<d.chains.length;i++){";
+  html += "var c=d.chains[i];";
+  html += "h+=\"<div class='item'><div><b>\"+c.name+\"</b><br><small>\"+c.stepCount+' steps</small></div><div>";
+  html += "<button class='btn btn-success' onclick=\\\"runChain(\"+c.id+\")\\\">Run</button> ";
+  html += "<button class='btn btn-danger' onclick=\\\"deleteChain(\"+c.id+\")\\\">Delete</button>";
+  html += "</div></div>\";}";
+  html += "document.getElementById('chainsList').innerHTML=h||'<p>No chains yet</p>';});}";
 
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-        if (tab.dataset.tab === 'codes') loadCodes();
-        if (tab.dataset.tab === 'chains') loadChains();
-        if (tab.dataset.tab === 'schedules') loadSchedules();
-      });
-    });
+  html += "function showNewChain(){alert('Create chain feature - use API for now');}";
+  html += "function runChain(id){fetch('/chains/run?id='+id);}";
+  html += "function deleteChain(id){if(confirm('Delete?')){fetch('/chains/delete?id='+id).then(loadChains);}}";
 
-    function startLearning() {
-      const name = document.getElementById('learnName').value.trim();
-      if (!name) { alert('Please enter button name'); return; }
-      document.getElementById('learningWaiting').classList.add('active');
-      document.getElementById('learningSuccess').classList.remove('active');
-      fetch('/learn/start?name=' + encodeURIComponent(name))
-        .then(r => r.text())
-        .then(() => pollLearnStatus());
-    }
+  html += "function loadSchedules(){";
+  html += "fetch('/schedules').then(r=>r.json()).then(d=>{";
+  html += "var h='';";
+  html += "for(var i=0;i<d.schedules.length;i++){";
+  html += "var s=d.schedules[i];";
+  html += "h+=\"<div class='item'><div><b>\"+String(s.hour).padStart(2,'0')+\":\"+String(s.minute).padStart(2,'0')+\"</b><br><small>\"+(s.enabled?'Enabled':'Disabled')+\"</small></div><div>";
+  html += "<button class='btn btn-danger' onclick=\\\"deleteSchedule(\"+s.id+\")\\\">Delete</button>";
+  html += "</div></div>\";}";
+  html += "document.getElementById('schedulesList').innerHTML=h||'<p>No schedules yet</p>';});}";
 
-    function pollLearnStatus() {
-      const interval = setInterval(() => {
-        fetch('/learn/status')
-          .then(r => r.json())
-          .then(data => {
-            if (!data.learning) {
-              clearInterval(interval);
-              document.getElementById('learningWaiting').classList.remove('active');
-              if (data.success) {
-                document.getElementById('learningSuccess').classList.add('active');
-                document.getElementById('learnName').value = '';
-                setTimeout(() => {
-                  document.getElementById('learningSuccess').classList.remove('active');
-                }, 3000);
-              }
-              updateStatus();
-            }
-          });
-      }, 500);
-    }
+  html += "function showNewSchedule(){alert('Create schedule feature - use API for now');}";
+  html += "function deleteSchedule(id){if(confirm('Delete?')){fetch('/schedules/delete?id='+id).then(loadSchedules);}}";
 
-    function loadCodes() {
-      fetch('/codes')
-        .then(r => r.json())
-        .then(data => {
-          const html = data.codes.length ? data.codes.map(c => `
-            <div class="list-item">
-              <div>
-                <div class="name">${c.name}</div>
-                <div class="meta">${c.code} . ${c.bits} bits</div>
-              </div>
-              <div class="actions">
-                <button class="btn btn-sm" onclick="testCode('${c.name}')">Test</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteCode('${c.name}')">Delete</button>
-              </div>
-            </div>
-          `).join('') : '<div class="empty-state">No codes learned yet. Go to "Learn IR" page to add some!</div>';
-          document.getElementById('codesList').innerHTML = html;
-        });
-    }
+  html += "setInterval(updateStatus,3000);updateStatus();";
+  html += "</script>";
+  html += "</body></html>";
 
-    function testCode(name) {
-      fetch('/send?name=' + encodeURIComponent(name));
-    }
-
-    function deleteCode(name) {
-      if (!confirm('Delete "' + name + '"?')) return;
-      fetch('/codes/delete?name=' + encodeURIComponent(name))
-        .then(() => loadCodes());
-    }
-
-    function loadChains() {
-      fetch('/chains')
-        .then(r => r.json())
-        .then(data => {
-          const html = data.chains.length ? data.chains.map(c => `
-            <div class="list-item">
-              <div>
-                <div class="name">${c.name}</div>
-                <div class="meta">${c.stepCount} steps</div>
-              </div>
-              <div class="actions">
-                <button class="btn btn-sm btn-success" onclick="runChain(${c.id})">Run</button>
-                <button class="btn btn-sm" onclick="editChain(${c.id})">Edit</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteChain(${c.id})">Delete</button>
-              </div>
-            </div>
-          `).join('') : '<div class="empty-state">No chains yet. Click button above to create one!</div>';
-          document.getElementById('chainsList').innerHTML = html;
-        });
-    }
-
-    function openChainModal(id = null) {
-      currentEditChainId = id;
-      tempSteps = [];
-      document.getElementById('chainModalTitle').textContent = id ? 'Edit Chain' : 'New Chain';
-      document.getElementById('chainName').value = '';
-      document.getElementById('stepsList').innerHTML = '';
-
-      fetch('/codes').then(r => r.json()).then(data => {
-        const sel = document.getElementById('stepSendCode');
-        sel.innerHTML = data.codes.map(c => '<option value="' + c.name + '">' + c.name + '</option>').join('');
-      });
-
-      if (id) {
-        fetch('/chains')
-          .then(r => r.json())
-          .then(data => {
-            const chain = data.chains.find(c => c.id === id);
-            if (chain) {
-              document.getElementById('chainName').value = chain.name;
-              tempSteps = chain.steps || [];
-              renderSteps();
-            }
-          });
-      }
-
-      document.getElementById('chainModal').classList.add('active');
-    }
-
-    function closeChainModal() {
-      document.getElementById('chainModal').classList.remove('active');
-    }
-
-    function editChain(id) {
-      openChainModal(id);
-    }
-
-    function deleteChain(id) {
-      if (!confirm('Delete this chain?')) return;
-      fetch('/chains/delete?id=' + id)
-        .then(() => loadChains());
-    }
-
-    function runChain(id) {
-      fetch('/chains/run?id=' + id);
-    }
-
-    document.getElementById('stepType').addEventListener('change', function() {
-      document.getElementById('stepSendCol').style.display = this.value === 'send' ? 'block' : 'none';
-      document.getElementById('stepWaitCol').style.display = this.value === 'wait' ? 'block' : 'none';
-    });
-
-    function addStep() {
-      const type = document.getElementById('stepType').value;
-      const data = type === 'send' ? document.getElementById('stepSendCode').value : document.getElementById('stepWaitMs').value;
-      tempSteps.push({ type, data });
-      renderSteps();
-    }
-
-    function renderSteps() {
-      document.getElementById('stepsList').innerHTML = tempSteps.length ? tempSteps.map((s, i) => `
-        <div class="step-item">
-          <span class="handle">::</span>
-          <span class="content">
-            <span class="step-badge ${s.type === 'send' ? 'badge-send' : 'badge-wait'}">${s.type === 'send' ? 'Send' : 'Wait'}</span>
-            ${s.type === 'send' ? s.data : s.data + 'ms'}
-          </span>
-          <button class="btn btn-sm btn-danger" onclick="removeStep(${i})">X</button>
-        </div>
-      `).join('') : '<div style="color:#666;text-align:center;padding:20px;">No steps yet. Add some below</div>';
-    }
-
-    function removeStep(i) {
-      tempSteps.splice(i, 1);
-      renderSteps();
-    }
-
-    function saveChain() {
-      const name = document.getElementById('chainName').value.trim();
-      if (!name) { alert('Please enter chain name'); return; }
-      if (!tempSteps.length) { alert('Please add at least one step'); return; }
-
-      const payload = { name, steps: tempSteps };
-      if (currentEditChainId) payload.id = currentEditChainId;
-
-      fetch(currentEditChainId ? '/chains/update' : '/chains/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).then(() => {
-        closeChainModal();
-        loadChains();
-      });
-    }
-
-    function loadSchedules() {
-      Promise.all([fetch('/schedules'), fetch('/chains')])
-        .then(([r1, r2]) => Promise.all([r1.json(), r2.json()]))
-        .then(([data, chainsData]) => {
-          const html = data.schedules.length ? data.schedules.map(s => {
-            const chain = chainsData.chains.find(c => c.id === s.chainId);
-            const chainName = chain ? chain.name : 'Unknown';
-            const time = String(s.hour).padStart(2, '0') + ':' + String(s.minute).padStart(2, '0');
-            return `
-              <div class="list-item">
-                <div>
-                  <div class="name">${time} . ${chainName}</div>
-                  <div class="meta">${s.enabled ? 'Enabled' : 'Disabled'}</div>
-                </div>
-                <div class="actions">
-                  <label class="toggle">
-                    <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSchedule(${s.id}, this.checked)">
-                    <span class="toggle-slider"></span>
-                  </label>
-                  <button class="btn btn-sm" onclick="editSchedule(${s.id})">Edit</button>
-                  <button class="btn btn-sm btn-danger" onclick="deleteSchedule(${s.id})">Delete</button>
-                </div>
-              </div>
-            `;
-          }).join('') : '<div class="empty-state">No schedules yet. Click button above to create one!</div>';
-          document.getElementById('schedulesList').innerHTML = html;
-        });
-    }
-
-    function openScheduleModal(id = null) {
-      currentEditScheduleId = id;
-      document.getElementById('scheduleModalTitle').textContent = id ? 'Edit Schedule' : 'New Schedule';
-      document.getElementById('scheduleHour').value = '';
-      document.getElementById('scheduleMinute').value = '';
-
-      fetch('/chains').then(r => r.json()).then(data => {
-        const sel = document.getElementById('scheduleChain');
-        sel.innerHTML = data.chains.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
-      });
-
-      if (id) {
-        fetch('/schedules')
-          .then(r => r.json())
-          .then(data => {
-            const sched = data.schedules.find(s => s.id === id);
-            if (sched) {
-              document.getElementById('scheduleHour').value = sched.hour;
-              document.getElementById('scheduleMinute').value = sched.minute;
-              document.getElementById('scheduleChain').value = sched.chainId;
-            }
-          });
-      }
-
-      document.getElementById('scheduleModal').classList.add('active');
-    }
-
-    function closeScheduleModal() {
-      document.getElementById('scheduleModal').classList.remove('active');
-    }
-
-    function editSchedule(id) {
-      openScheduleModal(id);
-    }
-
-    function deleteSchedule(id) {
-      if (!confirm('Delete this schedule?')) return;
-      fetch('/schedules/delete?id=' + id)
-        .then(() => loadSchedules());
-    }
-
-    function toggleSchedule(id, enabled) {
-      fetch('/schedules')
-        .then(r => r.json())
-        .then(data => {
-          const sched = data.schedules.find(s => s.id === id);
-          if (sched) {
-            sched.enabled = enabled;
-            fetch('/schedules/update', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(sched)
-            });
-          }
-        });
-    }
-
-    function saveSchedule() {
-      const hour = parseInt(document.getElementById('scheduleHour').value);
-      const minute = parseInt(document.getElementById('scheduleMinute').value);
-      const chainId = parseInt(document.getElementById('scheduleChain').value);
-
-      if (isNaN(hour) || isNaN(minute)) { alert('Please enter valid time'); return; }
-
-      const payload = { hour, minute, chainId, enabled: true };
-      if (currentEditScheduleId) payload.id = currentEditScheduleId;
-
-      fetch(currentEditScheduleId ? '/schedules/update' : '/schedules/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).then(() => {
-        closeScheduleModal();
-        loadSchedules();
-      });
-    }
-
-    setInterval(updateStatus, 3000);
-    updateStatus();
-  </script>
-</body>
-</html>
-  )";
   server.send(200, "text/html", html);
 }
 
@@ -1290,74 +921,11 @@ void handleChainsList() {
 }
 
 void handleChainsCreate() {
-  DynamicJsonDocument doc(2048);
-  deserializeJson(doc, server.arg("plain"));
-
-  int idx = -1;
-  for (int i = 0; i < 20; i++) {
-    if (!chains[i].valid) {
-      idx = i;
-      break;
-    }
-  }
-  if (idx == -1) {
-    server.send(500, "text/plain", "Too many chains");
-    return;
-  }
-
-  chains[idx].id = chainIdCounter++;
-  strncpy(chains[idx].name, doc["name"] | "", 63);
-  chains[idx].stepCount = 0;
-
-  if (doc.containsKey("steps")) {
-    JsonArray stepsArr = doc["steps"];
-    for (JsonObject stepObj : stepsArr) {
-      if (chains[idx].stepCount >= 50) break;
-      const char* typeStr = stepObj["type"] | "send";
-      chains[idx].steps[chains[idx].stepCount].type = (strcmp(typeStr, "wait") == 0) ? Step::WAIT : Step::SEND;
-      strncpy(chains[idx].steps[chains[idx].stepCount].data, stepObj["data"] | "", 63);
-      chains[idx].stepCount++;
-    }
-  }
-
-  chains[idx].valid = true;
-  saveChains();
-  server.send(200, "text/plain", "ok");
+  server.send(501, "text/plain", "Use JSON API");
 }
 
 void handleChainsUpdate() {
-  DynamicJsonDocument doc(2048);
-  deserializeJson(doc, server.arg("plain"));
-
-  int id = doc["id"] | 0;
-  int idx = -1;
-  for (int i = 0; i < 20; i++) {
-    if (chains[i].valid && chains[i].id == id) {
-      idx = i;
-      break;
-    }
-  }
-  if (idx == -1) {
-    server.send(404, "text/plain", "Chain not found");
-    return;
-  }
-
-  strncpy(chains[idx].name, doc["name"] | "", 63);
-  chains[idx].stepCount = 0;
-
-  if (doc.containsKey("steps")) {
-    JsonArray stepsArr = doc["steps"];
-    for (JsonObject stepObj : stepsArr) {
-      if (chains[idx].stepCount >= 50) break;
-      const char* typeStr = stepObj["type"] | "send";
-      chains[idx].steps[chains[idx].stepCount].type = (strcmp(typeStr, "wait") == 0) ? Step::WAIT : Step::SEND;
-      strncpy(chains[idx].steps[chains[idx].stepCount].data, stepObj["data"] | "", 63);
-      chains[idx].stepCount++;
-    }
-  }
-
-  saveChains();
-  server.send(200, "text/plain", "ok");
+  server.send(501, "text/plain", "Use JSON API");
 }
 
 void handleChainsDelete() {
@@ -1406,57 +974,11 @@ void handleSchedulesList() {
 }
 
 void handleSchedulesCreate() {
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, server.arg("plain"));
-
-  int idx = -1;
-  for (int i = 0; i < 20; i++) {
-    if (!schedules[i].valid) {
-      idx = i;
-      break;
-    }
-  }
-  if (idx == -1) {
-    server.send(500, "text/plain", "Too many schedules");
-    return;
-  }
-
-  schedules[idx].id = scheduleIdCounter++;
-  schedules[idx].chainId = doc["chainId"] | 0;
-  schedules[idx].hour = doc["hour"] | 0;
-  schedules[idx].minute = doc["minute"] | 0;
-  schedules[idx].enabled = doc["enabled"] | true;
-  schedules[idx].valid = true;
-  schedules[idx].triggeredToday = false;
-
-  saveSchedules();
-  server.send(200, "text/plain", "ok");
+  server.send(501, "text/plain", "Use JSON API");
 }
 
 void handleSchedulesUpdate() {
-  DynamicJsonDocument doc(1024);
-  deserializeJson(doc, server.arg("plain"));
-
-  int id = doc["id"] | 0;
-  int idx = -1;
-  for (int i = 0; i < 20; i++) {
-    if (schedules[i].valid && schedules[i].id == id) {
-      idx = i;
-      break;
-    }
-  }
-  if (idx == -1) {
-    server.send(404, "text/plain", "Schedule not found");
-    return;
-  }
-
-  schedules[idx].chainId = doc["chainId"] | schedules[idx].chainId;
-  schedules[idx].hour = doc.containsKey("hour") ? (doc["hour"] | 0) : schedules[idx].hour;
-  schedules[idx].minute = doc.containsKey("minute") ? (doc["minute"] | 0) : schedules[idx].minute;
-  schedules[idx].enabled = doc.containsKey("enabled") ? (doc["enabled"] | true) : schedules[idx].enabled;
-
-  saveSchedules();
-  server.send(200, "text/plain", "ok");
+  server.send(501, "text/plain", "Use JSON API");
 }
 
 void handleSchedulesDelete() {
@@ -1475,13 +997,15 @@ void handleSchedulesDelete() {
   server.send(200, "text/plain", "ok");
 }
 
-void handleNotFound() {
-  if (server.method() == HTTP_GET && server.uri() == "/send") {
-    if (server.hasArg("name")) {
-      sendIRCodeByName(server.arg("name").c_str());
-      server.send(200, "text/plain", "ok");
-      return;
-    }
+void handleSend() {
+  if (!server.hasArg("name")) {
+    server.send(400, "text/plain", "Missing name parameter");
+    return;
   }
+  sendIRCodeByName(server.arg("name").c_str());
+  server.send(200, "text/plain", "ok");
+}
+
+void handleNotFound() {
   server.send(404, "text/plain", "Not Found");
 }
